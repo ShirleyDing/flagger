@@ -146,32 +146,24 @@ func (c *Controller) addFinalizer(canary *flaggerv1.Canary) error {
 // If failures occur the error will be returned otherwise the action is deemed successful
 // and error will be nil.
 func (c *Controller) removeFinalizer(canary *flaggerv1.Canary) error {
-	firstTry := true
 	name, ns := canary.GetName(), canary.GetNamespace()
 	err := retry.RetryOnConflict(retry.DefaultBackoff, func() (err error) {
-		if !firstTry {
-			canary, err = c.flaggerClient.FlaggerV1beta1().Canaries(ns).Get(context.TODO(), name, metav1.GetOptions{})
-			if err != nil {
-				return fmt.Errorf("canary %s.%s get query failed: %w", name, ns, err)
-			}
+		canary, err = c.flaggerClient.FlaggerV1beta1().Canaries(ns).Get(context.TODO(), name, metav1.GetOptions{})
+		if err != nil {
+			return fmt.Errorf("canary %s.%s get query failed: %w", name, ns, err)
 		}
 
 		cCopy := canary.DeepCopy()
 
-		nfs := make([]string, 0, len(cCopy.ObjectMeta.Finalizers))
-		for _, item := range cCopy.ObjectMeta.Finalizers {
-			if item != finalizer {
-				nfs = append(nfs, item)
+		finalizers := cCopy.ObjectMeta.Finalizers
+		for i, item := range finalizers {
+			if item == finalizer {
+				finalizers = append(finalizers[:i], finalizers[i+1:]...)
 			}
 		}
+		cCopy.ObjectMeta.Finalizers = finalizers
 
-		if len(nfs) == 0 {
-			nfs = nil
-		}
-
-		cCopy.ObjectMeta.Finalizers = nfs
 		_, err = c.flaggerClient.FlaggerV1beta1().Canaries(canary.Namespace).Update(context.TODO(), cCopy, metav1.UpdateOptions{})
-		firstTry = false
 		return
 	})
 
